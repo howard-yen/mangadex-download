@@ -195,6 +195,10 @@ def searchTitle():
     title_url = 'https://mangadex.org' + node[int(selection)-1].xpath('div/div/a')[0].get('href')
     downloadTitle(title_url, session)
 
+#TODO send the resulting pdf to an email, intended for kindle uses
+def sendEmail():
+    pass
+
 #downloadChapter(962609)
 #downloadTitle('https://mangadex.org/title/50018/the-girl-who-is-always-smiling')
 #searchTitle('one punch')
