@@ -8,6 +8,12 @@ import browser_cookie3
 import getpass
 import re
 
+import smtplib, ssh, email
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
 # credit to the mangadex team for making this all possible and providing an amazing service!
 # keep in mind that ip gets banned for more than ~500 requests in less than 10 minutes
 
@@ -196,8 +202,36 @@ def searchTitle():
     downloadTitle(title_url, session)
 
 #TODO send the resulting pdf to an email, intended for kindle uses
+#note: for kindle, may need to add email address to approved list on amazon and need to approve once sent
+#credit: https://realpython.com/python-send-email/
 def sendEmail():
-    pass
+    port = 465
+    
+    subject = f'{title} manga pdf'
+    body = f'chapter {start} to {end} of the manga {title}'
+    sender_email = 'kurusuakira212@gmail.com'
+    receiver_email = 'HOWARDY2000@KINDLE.CN'
+    password = getpass.getpass('enter email password: ')
+
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = receiver_email
+    message["Subject"] = subject
+    
+    message.attach(MIMEText(body, "plain"))
+
+    with open(filename, "rb") as attachment:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(attachment.read())
+
+    encoders.encode_base64(part)
+
+    part.add_header("Content-Disposition", f"attachment; filename= {filename}")
+
+    
+
+
+
 
 #downloadChapter(962609)
 #downloadTitle('https://mangadex.org/title/50018/the-girl-who-is-always-smiling')
