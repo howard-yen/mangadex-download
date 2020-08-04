@@ -8,7 +8,7 @@ import browser_cookie3
 import getpass
 import re
 
-import smtplib, ssh, email
+import smtplib, ssl, email
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
@@ -24,7 +24,7 @@ def downloadChapter(chapter_id, chapter_num, title, session):
     if response.status_code != 200:
         print(f'request failed for chapter {chapter_id} with status code {response.status_code}, exiting...')
         exit()
-    print('---retrived api: success---')
+    print('---retrived chapter api: success---')
 
     # download all the pages and add them all to a list
     page_url = response.json()['server'] + response.json()['hash'] + '/'
@@ -39,24 +39,25 @@ def downloadChapter(chapter_id, chapter_num, title, session):
 
         temp = Image.open(BytesIO(page_response.content))
         im_list.append(temp.convert('RGB'))
-    
+
     print('---saving chapter---')
-    if chapter_num.isdigit():
-        filename = '{} - Chapter {:03d}.pdf'.format(title, int(chapter_num))
+    if str(chapter_num).isdigit():
+        filename = '{} - Chapter {:03d}.pdf'.format(title, chapter_num)
     else:
-        filename = '{} - Chapter {:05.1f}.pdf'.format(title, float(chapter_num))
+        filename = '{} - Chapter {:05.1f}.pdf'.format(title, chapter_num)
 
     im_list[0].save(filename, "PDF", resolution=100.0, save_all=True, append_images=im_list[1:])
-    print(f'-----save chapter {chapter_num} of {title}: success-----')
+    print(f'-----save {filename}: success-----')
+    return filename
 
+# downloads manga from the given title_url and prompts for the starting and ending chapters
 def downloadTitle(title_url, session, lang=1):
-
     print(f'-----downloading title {title_url}-----')
     response = session.get(title_url, headers=HEADERS)
     if response.status_code != 200:
         print(f'request failed for title at url {title_url} with status code {response.status_code}, exiting...')
         exit()
-    
+
     # path for all the chapter links
     PATH = '//html/body/div[@id="content"]/div[@class="edit tab-content"]/div/div'
     tree = etree.HTML(response.content)
@@ -64,6 +65,7 @@ def downloadTitle(title_url, session, lang=1):
     title = tree.xpath('//html/head/meta[@property="og:title"]')[0].get('content').replace(' (Title) - MangaDex', '')
     # the latest chapter available
     latest = float(tree.xpath(PATH)[1].xpath('div/div')[0].get('data-chapter'))
+    latest_title = tree.xpath(PATH)[1].xpath('div/div')[0].get('data-title')
 
     # check if there are more than one page of the manga
     page_links = tree.xpath('//html/body/div[@id="content"]/div[@class="edit tab-content"]/nav/ul/li[@class="page-item paging"]/a')
@@ -96,8 +98,13 @@ def downloadTitle(title_url, session, lang=1):
 
         # first one need to get the first chapter and prompt for start and end chapter
         if num == page_num:
-            first = float(node[-1].xpath('div/div')[0].get('data-chapter'))
-            print(f'{title} has chapters from {first} to {latest}, please enter the range you want')
+            first = node[-1].xpath('div/div')[0].get('data-chapter')
+            if first == '':
+                first = 0
+            else:
+                first = float(first)
+            first_title = node[-1].xpath('div/div')[0].get('data-title')
+            print(f'{title} has chapters from {first} - {first_title} to {latest} - {latest_title}, please enter the range you want')
             start_chapter = input(f'start (empty for {first}): ')
             end_chapter = input(f'end (empty for {latest}): ')
             #TODO improve condition checking
@@ -106,7 +113,8 @@ def downloadTitle(title_url, session, lang=1):
                 start_chapter = str(first)
             if end_chapter == '':
                 end_chapter = str(latest)
-            
+
+            #check if input is valid
             while not (pattern.match(start_chapter) and pattern.match(end_chapter) and float(start_chapter) <= float(end_chapter) and float(start_chapter) >= 0 and float(end_chapter) >= 0 and float(start_chapter) >= first and float(end_chapter) <= latest):
                 print('please input a valid range')
                 start_chapter = input(f'start (empty for {first}): ')
@@ -118,23 +126,65 @@ def downloadTitle(title_url, session, lang=1):
                     end_chapter = str(latest)
             start_chapter = float(start_chapter)
             end_chapter = float(end_chapter)
-        
+
+            # prompt for email and set up if needed
+            s =  input('would you like to send all downloaded chapters to an email? (y/n) ').lower()
+            while s != 'y' and s != 'n' and s != 'yes' and s != 'no':
+                s = input('please enter y or n: ').lower()
+
+            if s == 'y' or s == 'yes':
+                sending = True
+                sender_email = os.getenv('SENDING_EMAIL') # input('sender email: ')
+                receiver_email = os.getenv('RECEIVING_EMAIL') #input('receiver email: ')
+                password = os.getenv('MANGADEX_PASSWORD') #getpass.getpass('enter sender email password: ')
+                message = createMessage(title, sender_email, receiver_email)
+                curSize = 0
+                try:
+                    context = ssl.create_default_context()
+                    server = smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context)
+                    server.login(sender_email, password)
+                except:
+                    print("-----coulnd't login: not sending emails-----")
+                    sending = False
+            else:
+                sending = False
+
+
         # download every chapter
         for i in reversed(node):
             temp = i.xpath('div/div')[0]
-            chapter_num = float(temp.get('data-chapter'))
+            if temp.get('data-chapter') == '':
+                chapter_num = 0
+            else:
+                chapter_num = float(temp.get('data-chapter'))
             if chapter_num > end_chapter:
                 break
-            if chapter_num>=start_chapter:
-                if int(temp.get('data-lang')) == lang:
-                    downloadChapter(temp.get('data-id'), temp.get('data-chapter'), title, session)
+            if chapter_num>=start_chapter and int(temp.get('data-lang')) == lang:
+                filename = downloadChapter(temp.get('data-id'), chapter_num, title, session)
+                if sending:
+                    temp = os.path.getsize(filename)
+                    if temp + curSize > 25000000:
+                        # need to send email and then create a new message
+                        # TODO need to add try except
+                        server.sendmail(sender_email, receiver_email, message.as_string())
+                        message = createMessage(title, sender_email, receiver_email)
+                        curSize = 0
+                    else:
+                        # add chapter as attachment
+                        addAttachment(filename, message)
+                        curSize += temp
+
         if chapter_num > end_chapter:
             break
 
     # go back to the parent directory
     os.chdir(os.path.dirname(os.getcwd()))
-    print(f'-----finished downloading all chapters(from {start_chapter} to {chapter_num}) for {title}-----')
-
+    print(f'-----finished downloading all chapters from {start_chapter} to {chapter_num-1}) for {title}-----')
+    if sending:
+        if curSize > 0:
+            server.sendmail(sender_email, receiver_email, message.as_string())
+        server.quit()
+        print('-----finished sending emails-----')
 
 # probably impossible due to recaptcha
 def login(session):
@@ -165,12 +215,12 @@ def searchTitle():
     session.headers.update(HEADERS)
 
     # TODO: implement login with username and password
-    s = input('would you like to get automatically cookies from you browser for login? (y/n) ').lower()
+    s = 'y'# input('would you like to get automatically cookies from you browser for login? (y/n) ').lower()
     while s != 'y' and s != 'n' and s != 'yes' and s != 'no':
         s = input('please enter y or n: ').lower()
 
     if s == 'y' or s == 'yes':
-        try: 
+        try:
             cookies = browser_cookie3.load('mangadex.org')
             session.cookies.update(cookies)
         except:
@@ -181,6 +231,7 @@ def searchTitle():
 
     title = input('what manga would you like to download? ')
 
+    # TODO: ask for lang
     response = session.get(SEARCH_API_URL.format(title))
     if response.status_code != 200:
         print(f'requested failed with searching for {title} with status code {response.status_code}, exiting...')
@@ -201,37 +252,69 @@ def searchTitle():
     title_url = 'https://mangadex.org' + node[int(selection)-1].xpath('div/div/a')[0].get('href')
     downloadTitle(title_url, session)
 
-#TODO send the resulting pdf to an email, intended for kindle uses
-#note: for kindle, may need to add email address to approved list on amazon and need to approve once sent
-#credit: https://realpython.com/python-send-email/
-def sendEmail():
-    port = 465
-    
+# add attachment to the email
+def addAttachment(filename, message):
+    with open(filename, 'rb') as attachment:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(attachment.read())
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=filename)
+    message.attach(part)
+
+# create the message for an email
+def createMessage(title, sender_email, receiver_email):
     subject = f'{title} manga pdf'
-    body = f'chapter {start} to {end} of the manga {title}'
-    sender_email = 'kurusuakira212@gmail.com'
-    receiver_email = 'HOWARDY2000@KINDLE.CN'
-    password = getpass.getpass('enter email password: ')
+    body = 'created by mangadex-download'
 
     message = MIMEMultipart()
     message["From"] = sender_email
     message["To"] = receiver_email
     message["Subject"] = subject
-    
+    # TODO allow sending to multiple email
+    # message["Bcc"] = receiver_email
+
+    message.attach(MIMEText(body, "plain"))
+    return message
+
+#TODO implement google API for authentication and add support for other emails
+# https://developers.google.com/gmail/api/quickstart/python
+# note: for kindle, may need to add email address to approved list on amazon and need to approve once sent
+#credit: https://realpython.com/python-send-email/
+def sendEmail(title, start, end, dir='.'):
+    if not os.path.exists(dir):
+        print(f"directory {dir} not found, couldn't send email")
+        return
+
+    # initialize everything we need for sending emails
+    #TODO ask for sender and receiver email
+    subject = f'{title} manga pdf'
+    body = f'chapter {start} to {end} of the manga {title}'
+    sender_email = 'kurusuakira212@gmail.com'
+    receiver_email = 'HOWARDY2000@KINDLE.CN'
+    password = getpass.getpass('enter email password: ')
+    print(f'----sending email-----')
+
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = receiver_email
+    message["Subject"] = subject
+    message["Bcc"] = receiver_email # for sending to multiple emails
+
     message.attach(MIMEText(body, "plain"))
 
-    with open(filename, "rb") as attachment:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(attachment.read())
+    # attach all the chapters
+    curDir = os.getcwd()
+    os.chdir(dir)
+    for file in os.listdir():
+        addAttachment(file, message)
+    os.chdir(curDir)
 
-    encoders.encode_base64(part)
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, message.as_string())
 
-    part.add_header("Content-Disposition", f"attachment; filename= {filename}")
-
-    
-
-
-
+    print('-----finished sending email-----')
 
 #downloadChapter(962609)
 #downloadTitle('https://mangadex.org/title/50018/the-girl-who-is-always-smiling')
