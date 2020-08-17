@@ -37,6 +37,8 @@ python download.py
 - follow the prompt and you'll be able to search for a manga and select the chapters to download, they will be in a new folder with the title as the name. 
 - if you want to email the chapters, you can just follow the prompts as well. 
 
+---
+
 ## Future Plans
 - Add support for selecting languages. This is mostly implemented, but need to find out the lang-id for different lanuages. 
 - Add sleep timers between requests
