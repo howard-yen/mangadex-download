@@ -42,3 +42,4 @@ python download.py
 ## Future Plans
 - Add support for selecting languages. This is mostly implemented, but need to find out the lang-id for different lanuages. 
 - Add sleep timers between requests
+- Add support for sending emails to multiple addresses (using bcc)
