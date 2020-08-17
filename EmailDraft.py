@@ -27,9 +27,9 @@ class EmailDraft:
             self.__sender_email = sender_email
 
         if receiver_email == '':
-            self.__receiver_email = [input('receiver email: ')] + bcc_emails
+            self.__receiver_email = input('receiver email: ')# + bcc_emails
         else:
-            self.__receiver_email = [receiver_email] + bcc_emails
+            self.__receiver_email = receiver_email #+ bcc_emails
 
         if password == '':
             self.__password = getpass.getpass('email password: ')
@@ -42,7 +42,7 @@ class EmailDraft:
         try:
             self.__context = ssl.create_default_context()
             self.__server = smtplib.SMTP_SSL("smtp.gmail.com", 465, context=self.__context)
-            print(f'{self.__sender_email} || self.__password')
+            #print(f'{self.__sender_email} || self.__password')
             self.__server.login(self.__sender_email, self.__password)
         except smtplib.SMTPAuthenticationError:
             print('authentication error occurred...')
@@ -52,14 +52,14 @@ class EmailDraft:
     # send the email and create a new message
     def __sendEmail(self, newMessage = True):
         self.__message.attach(MIMEText(self.__body, "plain"))
-        if self.__size > 0:
-            try:
-                self.__server.sendmail(self.__sender_email, self.__receiver_email, self.__message.as_string())
-                if newMessage:
-                    self.__message = self.__createMessage()
-                self.__size = 0
-            except: # could raise error here instead
-                print('an error occurred while sending email...')
+        try:
+            self.__server.sendmail(self.__sender_email, self.__receiver_email, self.__message.as_string())
+        except Exception as e: # could raise error here instead
+            print(f'an error occurred while sending email...{e}')
+
+        if newMessage:
+            self.__message = self.__createMessage()
+        self.__size = 0
 
     # create a basic message without any attachments
     def __createMessage(self):
@@ -87,6 +87,7 @@ class EmailDraft:
         encoders.encode_base64(part)
         part.add_header('Content-Disposition', 'attachment', filename=filename)
         self.__message.attach(part)
+        self.__size += filesize
 
     # send an entire directory of file as attachments
     def sendDir(self, dir):
@@ -103,6 +104,8 @@ class EmailDraft:
 
     # send remaining attachments and close connection to server
     def close(self):
+        print(self.__size)
         if self.__size > 0:
+            print('sending email before closing')
             self.__sendEmail(newMessage=False)
-        server.quit()
+        self.__server.quit()

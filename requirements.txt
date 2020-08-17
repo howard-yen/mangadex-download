@@ -1,0 +1,4 @@
+Pillow
+lxml
+python-dotenv
+browser-cookie3

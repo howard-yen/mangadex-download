@@ -8,11 +8,7 @@ import browser_cookie3
 import getpass
 import re
 
-import smtplib, ssl, email
-from email import encoders
-from email.mime.base import MIMEBase
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import EmailDraft
 
 # credit to the mangadex team for making this all possible and providing an amazing service!
 # keep in mind that ip gets banned for more than ~500 requests in less than 10 minutes
@@ -134,18 +130,11 @@ def downloadTitle(title_url, session, lang=1):
 
             if s == 'y' or s == 'yes':
                 sending = True
-                sender_email = os.getenv('SENDING_EMAIL') # input('sender email: ')
-                receiver_email = os.getenv('RECEIVING_EMAIL') #input('receiver email: ')
-                password = os.getenv('MANGADEX_PASSWORD') #getpass.getpass('enter sender email password: ')
-                message = createMessage(title, sender_email, receiver_email)
-                curSize = 0
-                try:
-                    context = ssl.create_default_context()
-                    server = smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context)
-                    server.login(sender_email, password)
-                except:
-                    print("-----coulnd't login: not sending emails-----")
-                    sending = False
+                sender_email = input('sender email: ')
+                receiver_email = input('receiver email: ')
+                password = getpass.getpass('enter sender email password: ')
+
+                draft=EmailDraft.EmailDraft(title, sender_email=sender_email, receiver_email=receiver_email, password=password)
             else:
                 sending = False
 
@@ -162,17 +151,7 @@ def downloadTitle(title_url, session, lang=1):
             if chapter_num>=start_chapter and int(temp.get('data-lang')) == lang:
                 filename = downloadChapter(temp.get('data-id'), chapter_num, title, session)
                 if sending:
-                    temp = os.path.getsize(filename)
-                    if temp + curSize > 25000000:
-                        # need to send email and then create a new message
-                        # TODO need to add try except
-                        server.sendmail(sender_email, receiver_email, message.as_string())
-                        message = createMessage(title, sender_email, receiver_email)
-                        curSize = 0
-                    else:
-                        # add chapter as attachment
-                        addAttachment(filename, message)
-                        curSize += temp
+                    draft.addAttachment(filename);
 
         if chapter_num > end_chapter:
             break
@@ -181,9 +160,7 @@ def downloadTitle(title_url, session, lang=1):
     os.chdir(os.path.dirname(os.getcwd()))
     print(f'-----finished downloading all chapters from {start_chapter} to {chapter_num-1}) for {title}-----')
     if sending:
-        if curSize > 0:
-            server.sendmail(sender_email, receiver_email, message.as_string())
-        server.quit()
+        draft.close()
         print('-----finished sending emails-----')
 
 # probably impossible due to recaptcha
@@ -251,70 +228,6 @@ def searchTitle():
 
     title_url = 'https://mangadex.org' + node[int(selection)-1].xpath('div/div/a')[0].get('href')
     downloadTitle(title_url, session)
-
-# add attachment to the email
-def addAttachment(filename, message):
-    with open(filename, 'rb') as attachment:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(attachment.read())
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", "attachment", filename=filename)
-    message.attach(part)
-
-# create the message for an email
-def createMessage(title, sender_email, receiver_email):
-    subject = f'{title} manga pdf'
-    body = 'created by mangadex-download'
-
-    message = MIMEMultipart()
-    message["From"] = sender_email
-    message["To"] = receiver_email
-    message["Subject"] = subject
-    # TODO allow sending to multiple email
-    # message["Bcc"] = receiver_email
-
-    message.attach(MIMEText(body, "plain"))
-    return message
-
-#TODO implement google API for authentication and add support for other emails
-# https://developers.google.com/gmail/api/quickstart/python
-# note: for kindle, may need to add email address to approved list on amazon and need to approve once sent
-#credit: https://realpython.com/python-send-email/
-def sendEmail(title, start, end, dir='.'):
-    if not os.path.exists(dir):
-        print(f"directory {dir} not found, couldn't send email")
-        return
-
-    # initialize everything we need for sending emails
-    #TODO ask for sender and receiver email
-    subject = f'{title} manga pdf'
-    body = f'chapter {start} to {end} of the manga {title}'
-    sender_email = 'kurusuakira212@gmail.com'
-    receiver_email = 'HOWARDY2000@KINDLE.CN'
-    password = getpass.getpass('enter email password: ')
-    print(f'----sending email-----')
-
-    message = MIMEMultipart()
-    message["From"] = sender_email
-    message["To"] = receiver_email
-    message["Subject"] = subject
-    message["Bcc"] = receiver_email # for sending to multiple emails
-
-    message.attach(MIMEText(body, "plain"))
-
-    # attach all the chapters
-    curDir = os.getcwd()
-    os.chdir(dir)
-    for file in os.listdir():
-        addAttachment(file, message)
-    os.chdir(curDir)
-
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-        server.login(sender_email, password)
-        server.sendmail(sender_email, receiver_email, message.as_string())
-
-    print('-----finished sending email-----')
 
 #downloadChapter(962609)
 #downloadTitle('https://mangadex.org/title/50018/the-girl-who-is-always-smiling')
